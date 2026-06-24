@@ -1,0 +1,23 @@
+# Rust build output
+/target/
+**/*.rs.bk
+
+# Release packaging output
+/dist/
+/offline/
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Local environment / signing material (never commit secrets)
+*.p12
+*.pem
+*.cer
+.env

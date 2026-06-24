@@ -1,0 +1,17 @@
+[package]
+name = "adlerit"
+version = "0.1.0"
+edition = "2021"
+description = "A focused Adler-32 calculator for desktop and command line"
+license = "MIT"
+
+[dependencies]
+adler2 = "2.0"
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+eframe = { version = "0.34.3", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

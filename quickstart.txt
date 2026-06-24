@@ -1,0 +1,117 @@
+AdlerIt Quick Start
+===================
+
+AdlerIt computes Adler-32 checksums. The same program is both a desktop app and
+a command-line tool: open it with no arguments for the window, or pass flags to
+hash text, a file, or piped input from a terminal.
+
+AdlerIt is Windows-only for now. It makes no network connections and writes no
+files: nothing is installed unless you use the installer, and no settings or
+data are saved.
+
+
+1. First Run
+------------
+
+- Portable: download AdlerIt-Windows-x64.exe and run it. No installation is
+  required; it is a single self-contained executable.
+- Installer: run AdlerIt-Windows-x64-Setup.exe to install AdlerIt and optionally
+  add it to your PATH.
+- Both are native 64-bit Windows applications with no bundled browser engine or
+  web application runtime.
+
+
+2. Using the Desktop App
+------------------------
+
+- Launch AdlerIt with no command-line arguments to open the window.
+- Type or paste text into the INPUT box.
+- The Adler-32 value updates live, shown as hex (0x...) and decimal, with the
+  UTF-8 byte count.
+- Click Copy to copy the hex checksum to the clipboard.
+
+
+3. Using the Command Line
+-------------------------
+
+Run adlerit with an input option to use the command line. Use adlerit --help for
+the full list.
+
+Hash inline text:
+  adlerit --text "Wikipedia"
+  -> 11e60398
+
+Hash a file's raw bytes:
+  adlerit --file .\payload.bin
+
+Hash piped input (standard input):
+  Get-Content payload.txt -Raw | adlerit.exe --stdin
+
+The input options are mutually exclusive: use one of --text, --file, or --stdin.
+
+
+4. Output Formats
+-----------------
+
+Use --format to choose how the checksum is printed:
+
+- hex       Hexadecimal (default), for example 11e60398
+- decimal   Decimal value, for example 300286872
+- both      Hex and decimal, separated by two spaces
+
+Example:
+  adlerit --text "Wikipedia" --format both
+  -> 11e60398  300286872
+
+
+5. Appearance
+-------------
+
+The top-right menu in the desktop app sets the theme: System, Light, or Dark.
+The accent color is a fixed Material flat blue. AdlerIt saves no settings, so the
+theme starts on System (which follows your Windows light/dark setting) each time
+you open it.
+
+
+6. Verifying Your Download
+--------------------------
+
+GitHub shows a SHA-256 digest next to each release asset. Compute the hash of
+your download and compare it to that digest:
+
+  Get-FileHash .\AdlerIt-Windows-x64.exe -Algorithm SHA256
+
+Release binaries also carry a GitHub build-provenance attestation, and are
+scanned with Microsoft Defender before publication. To verify provenance with
+the GitHub CLI:
+
+  gh attestation verify AdlerIt-Windows-x64.exe --repo Joshndroid/AdlerIt
+
+Note: Adler-32 is a checksum for integrity and error detection, not a
+cryptographic hash. Do not rely on it to prove authenticity against a malicious
+party.
+
+
+7. Troubleshooting
+------------------
+
+The window does not open:
+- Make sure you launched AdlerIt with no command-line arguments. Any of --text,
+  --file, or --stdin runs the command-line path instead.
+
+The command line prints an error:
+- Use only one input option at a time.
+- For --file, check the path exists and is readable.
+
+Different result than expected:
+- AdlerIt hashes raw bytes. Inline text is hashed as UTF-8, so encoding and
+  trailing newlines change the checksum.
+
+
+8. Recommended First Steps
+--------------------------
+
+1. Open AdlerIt and type some text to see the live checksum.
+2. Pick a theme (System, Light, or Dark).
+3. Try the command line: adlerit --text "Wikipedia".
+4. Verify a downloaded release asset against its SHA-256 digest.

@@ -1,0 +1,324 @@
+name: Build release apps
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Intended release tag (vX.X.X); must match Cargo.toml
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify release source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must use vX.X.X format, for example v1.2.3." >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Verify release version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+        run: |
+          expected_version="${RELEASE_TAG#v}"
+          cargo_version="$(awk -F '"' '/^version = / { print $2; exit }' Cargo.toml)"
+          if [[ "$cargo_version" != "$expected_version" ]]; then
+            echo "Release tag must match the version in Cargo.toml." >&2
+            echo "tag=$RELEASE_TAG Cargo.toml=$cargo_version" >&2
+            exit 1
+          fi
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.96.0
+          components: clippy, rustfmt
+
+      - name: Audit Rust dependencies
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run tests
+        run: cargo test --workspace --all-targets
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  windows-portable:
+    name: Windows portable
+    runs-on: windows-latest
+    needs: verify
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.96.0
+          components: clippy
+          targets: x86_64-pc-windows-msvc
+
+      - name: Run Windows Clippy
+        shell: pwsh
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Build portable app
+        shell: pwsh
+        run: Scripts\build-windows-portable.ps1
+
+      - name: Upload portable app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: AdlerIt-Windows-x64-portable
+          path: dist/AdlerIt-Windows-x64.exe
+          if-no-files-found: error
+
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+    needs: verify
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.96.0
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: Scripts\build-windows-installer.ps1
+
+      - name: Upload installer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: AdlerIt-Windows-x64-installer
+          path: dist/AdlerIt-Windows-x64-Setup.exe
+          if-no-files-found: error
+
+  windows-defender-scan:
+    name: Scan Windows release artifacts
+    runs-on: windows-latest
+    needs:
+      - windows-portable
+      - windows-installer
+    timeout-minutes: 15
+    steps:
+      - name: Download Windows release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: AdlerIt-Windows-x64-*
+          path: defender-input
+          merge-multiple: true
+
+      - name: Verify Microsoft Defender and update signatures
+        shell: pwsh
+        run: |
+          $status = Get-MpComputerStatus -ErrorAction Stop
+
+          $status | Select-Object `
+            AMRunningMode, AMServiceEnabled, AntivirusEnabled, `
+            RealTimeProtectionEnabled, AMEngineVersion, `
+            AntivirusSignatureVersion, AntivirusSignatureLastUpdated | Format-List
+
+          if (-not $status.AMServiceEnabled) { throw "Microsoft Defender's antimalware service is not enabled." }
+          if (-not $status.AntivirusEnabled) { throw "Microsoft Defender Antivirus is not enabled." }
+          if ($status.AMRunningMode -ne "Normal") { throw "Microsoft Defender is not active (mode: $($status.AMRunningMode))." }
+
+          $existingDetections = @(Get-MpThreatDetection -ErrorAction Stop)
+          if ($existingDetections.Count -gt 0) {
+            $existingDetections | Format-List
+            throw "The fresh runner already reports a Defender detection."
+          }
+
+          Update-MpSignature -ErrorAction Stop
+
+      - name: Prepare Windows artifacts for scanning
+        shell: pwsh
+        run: |
+          $inputRoot = Join-Path $PWD "defender-input"
+          $scanRoot = Join-Path $PWD "defender-scan"
+          New-Item -ItemType Directory -Path $scanRoot -Force | Out-Null
+
+          $artifacts = @(
+            "AdlerIt-Windows-x64.exe",
+            "AdlerIt-Windows-x64-Setup.exe"
+          )
+
+          foreach ($artifact in $artifacts) {
+            $source = Join-Path $inputRoot $artifact
+            if (-not (Test-Path $source)) { throw "Expected release artifact was not downloaded: $artifact" }
+            Copy-Item $source $scanRoot
+          }
+
+      - name: Scan Windows release artifacts with Microsoft Defender
+        shell: pwsh
+        run: |
+          $scanRoot = Join-Path $PWD "defender-scan"
+          Start-MpScan -ScanType CustomScan -ScanPath $scanRoot -ErrorAction Stop
+
+          $detections = @(Get-MpThreatDetection -ErrorAction Stop)
+          if ($detections.Count -gt 0) {
+            $detections | Format-List
+            throw "Microsoft Defender reported a detection in the Windows release artifacts."
+          }
+
+          $status = Get-MpComputerStatus -ErrorAction Stop
+          $reportPath = Join-Path $PWD "defender-scan-report.txt"
+          @(
+            "Microsoft Defender release scan: no detections",
+            "Scan time (UTC): $([DateTime]::UtcNow.ToString('O'))",
+            "Engine version: $($status.AMEngineVersion)",
+            "Signature version: $($status.AntivirusSignatureVersion)",
+            "Signatures updated: $($status.AntivirusSignatureLastUpdated)",
+            "",
+            "SHA-256 release artifact hashes:"
+          ) | Set-Content -Path $reportPath -Encoding UTF8
+
+          $releaseArtifacts = @(
+            "defender-input\AdlerIt-Windows-x64.exe",
+            "defender-input\AdlerIt-Windows-x64-Setup.exe"
+          )
+          Get-FileHash -Algorithm SHA256 -Path $releaseArtifacts |
+            ForEach-Object { "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))" } |
+            Add-Content -Path $reportPath -Encoding UTF8
+
+          Get-Content $reportPath
+
+      - name: Upload Microsoft Defender scan report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: AdlerIt-Windows-Defender-scan-report
+          path: defender-scan-report.txt
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    runs-on: ubuntu-latest
+    needs:
+      - windows-portable
+      - windows-installer
+      - windows-defender-scan
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout release history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Validate version tag
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must use vX.X.X format, for example v1.2.3." >&2
+            exit 1
+          fi
+
+      - name: Generate release notes
+        run: Scripts/generate-release-notes.sh release-notes.md "$GITHUB_REF_NAME"
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Attest release artifacts
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
+        with:
+          subject-path: |
+            release-assets/AdlerIt-Windows-x64.exe
+            release-assets/AdlerIt-Windows-x64-Setup.exe
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
+        with:
+          name: AdlerIt ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/AdlerIt-Windows-x64.exe
+            release-assets/AdlerIt-Windows-x64-Setup.exe
+
+  dry-run-summary:
+    name: Verify dry-run release bundle
+    runs-on: ubuntu-latest
+    needs:
+      - windows-portable
+      - windows-installer
+      - windows-defender-scan
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout release history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Download dry-run artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify release bundle and preview notes
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          expected_assets=(
+            AdlerIt-Windows-x64.exe
+            AdlerIt-Windows-x64-Setup.exe
+            defender-scan-report.txt
+          )
+
+          for asset in "${expected_assets[@]}"; do
+            if [[ ! -f "release-assets/$asset" ]]; then
+              echo "Dry run did not produce expected artifact: $asset" >&2
+              exit 1
+            fi
+          done
+
+          git tag "$RELEASE_TAG" HEAD
+          Scripts/generate-release-notes.sh release-notes-preview.md "$RELEASE_TAG"
+          sha256sum "${expected_assets[@]/#/release-assets/}" > release-assets.sha256
+
+      - name: Upload dry-run summary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: AdlerIt-release-dry-run-summary
+          path: |
+            release-notes-preview.md
+            release-assets.sha256
+          if-no-files-found: error
