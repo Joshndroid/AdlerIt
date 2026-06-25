@@ -1,47 +1,35 @@
-use eframe::egui::{self, FontData, FontDefinitions, FontFamily, FontId, RichText, TextEdit};
-
-use crate::{
-    hash,
-    theme::{self, ThemeMode},
+use eframe::egui::{
+    self, Color32, FontData, FontDefinitions, FontFamily, FontId, RichText, Stroke, TextEdit,
 };
+
+use crate::hash;
+
+const ACCENT: Color32 = Color32::from_rgb(25, 118, 210);
 
 pub struct AdlerApp {
     input: String,
-    theme_mode: ThemeMode,
     copy_label: &'static str,
 }
 
 impl AdlerApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         install_fonts(&cc.egui_ctx);
-        let app = Self {
+        apply_accent(&cc.egui_ctx);
+        Self {
             input: String::new(),
-            theme_mode: ThemeMode::System,
             copy_label: "Copy",
-        };
-        theme::apply(&cc.egui_ctx, app.theme_mode);
-        app
+        }
     }
 }
 
 impl eframe::App for AdlerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        let old_theme = self.theme_mode;
 
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.heading(RichText::new("AdlerIt").strong());
             ui.label(RichText::new("Adler-32 calculator").weak());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                egui::ComboBox::from_id_salt("theme")
-                    .selected_text(self.theme_mode.label())
-                    .show_ui(ui, |ui| {
-                        for mode in ThemeMode::ALL {
-                            ui.selectable_value(&mut self.theme_mode, mode, mode.label());
-                        }
-                    });
-            });
         });
         ui.add_space(8.0);
         ui.separator();
@@ -92,11 +80,17 @@ impl eframe::App for AdlerApp {
                     });
                 });
             });
-
-        if old_theme != self.theme_mode {
-            theme::apply(&ctx, self.theme_mode);
-        }
     }
+}
+
+fn apply_accent(ctx: &egui::Context) {
+    ctx.global_style_mut(|style| {
+        style.visuals.selection.bg_fill = ACCENT;
+        style.visuals.hyperlink_color = ACCENT;
+        style.visuals.widgets.active.bg_fill = ACCENT;
+        style.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT);
+        style.visuals.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT);
+    });
 }
 
 fn install_fonts(ctx: &egui::Context) {

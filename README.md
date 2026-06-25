@@ -12,7 +12,7 @@ browser engine or web runtime.
 - Live Adler-32 calculation from text typed into the desktop window
 - Hex and decimal output with a UTF-8 byte count
 - One-click copy of the hex checksum
-- Light, dark, and system themes with a consistent blue accent
+- Follows the Windows light/dark theme with a fixed blue accent
 - Bundled JetBrains Mono for checksum/input text
 - No network access, telemetry, update checks, persisted state, or background
   activity
@@ -22,7 +22,6 @@ browser engine or web runtime.
 - Single-crate Rust GUI app (`adlerit`)
 - `egui/eframe` desktop UI in `src/app.rs`
 - Small in-tree Adler-32 implementation in `src/hash.rs`
-- Theme handling in `src/theme.rs`
 - JetBrains Mono embedded directly in the executable
 
 ## Layout
@@ -32,7 +31,6 @@ src/
   main.rs               GUI entry point
   app.rs                desktop UI
   hash.rs               Adler-32 calculation
-  theme.rs              themes and accent colors
 
 assets/
   fonts/
@@ -136,9 +134,8 @@ gh attestation verify AdlerIt-Windows-x64.exe --repo Joshndroid/AdlerIt
 
 ## Appearance
 
-The desktop app has a theme menu in the top-right corner with `System`, `Light`,
-and `Dark` modes. AdlerIt persists nothing, so the theme returns to `System`
-each launch; `System` follows the operating system's current light/dark setting.
+The desktop app follows the operating system's light/dark theme and uses a fixed
+blue accent.
 
 ## Bundled Fonts
 

@@ -30,8 +30,7 @@ data files.
 3. Appearance
 -------------
 
-The top-right menu sets the theme: System, Light, or Dark. AdlerIt saves no
-settings, so the theme starts on System each time you open it.
+AdlerIt follows your Windows light/dark theme and uses a fixed blue accent.
 
 
 4. Verifying Your Download

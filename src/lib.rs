@@ -1,6 +1,5 @@
 mod app;
 pub mod hash;
-mod theme;
 
 /// Launch the native AdlerIt desktop window.
 pub fn run_gui() -> Result<(), eframe::Error> {
