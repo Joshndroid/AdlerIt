@@ -105,10 +105,12 @@ fn install_fonts(ctx: &egui::Context) {
         "JetBrains Mono".to_owned(),
         FontData::from_static(include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf")).into(),
     );
-    fonts
-        .families
-        .entry(FontFamily::Monospace)
-        .or_default()
-        .insert(0, "JetBrains Mono".to_owned());
+    for family in [FontFamily::Proportional, FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .insert(0, "JetBrains Mono".to_owned());
+    }
     ctx.set_fonts(fonts);
 }

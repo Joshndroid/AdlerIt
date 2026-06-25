@@ -2,10 +2,8 @@ mod app;
 pub mod hash;
 mod theme;
 
-use anyhow::Result;
-
 /// Launch the native AdlerIt desktop window.
-pub fn run_gui() -> Result<()> {
+pub fn run_gui() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("AdlerIt")
@@ -19,5 +17,4 @@ pub fn run_gui() -> Result<()> {
         options,
         Box::new(|cc| Ok(Box::new(app::AdlerApp::new(cc)))),
     )
-    .map_err(|error| anyhow::anyhow!(error.to_string()))
 }

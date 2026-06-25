@@ -1,4 +1,4 @@
-name: Build release apps
+name: Build release app
 
 on:
   push:
@@ -49,7 +49,7 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           toolchain: 1.96.0
-          components: clippy, rustfmt
+          components: rustfmt
 
       - name: Audit Rust dependencies
         run: |
@@ -59,14 +59,8 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Run tests
-        run: cargo test --workspace --all-targets
-
-      - name: Run Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-  windows-portable:
-    name: Windows portable
+  windows-app:
+    name: Windows GUI app
     runs-on: windows-latest
     needs: verify
     steps:
@@ -84,86 +78,35 @@ jobs:
         shell: pwsh
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
-      - name: Build portable app
+      - name: Run Windows tests
         shell: pwsh
-        run: Scripts\build-windows-portable.ps1
+        run: cargo test --workspace --all-targets --locked
 
-      - name: Upload portable app
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: AdlerIt-Windows-x64-portable
-          path: dist/AdlerIt-Windows-x64.exe
-          if-no-files-found: error
-
-  windows-installer:
-    name: Windows installer
-    runs-on: windows-latest
-    needs: verify
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: 1.96.0
-          targets: x86_64-pc-windows-msvc
-
-      - name: Install Inno Setup
-        shell: pwsh
-        run: choco install innosetup --no-progress -y
-
-      - name: Build installer
-        shell: pwsh
-        run: Scripts\build-windows-installer.ps1
-
-      - name: Upload installer
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: AdlerIt-Windows-x64-installer
-          path: dist/AdlerIt-Windows-x64-Setup.exe
-          if-no-files-found: error
-
-  windows-gui:
-    name: Windows GUI only
-    runs-on: windows-latest
-    needs: verify
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: 1.96.0
-          targets: x86_64-pc-windows-msvc
-
-      - name: Build GUI-only app
+      - name: Build Windows GUI app
         shell: pwsh
         run: Scripts\build-windows-gui.ps1
 
-      - name: Upload GUI-only app
+      - name: Upload Windows GUI app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: AdlerIt-Windows-x64-gui
-          path: dist/AdlerIt-Windows-x64-GUI.exe
+          name: AdlerIt-Windows-x64
+          path: |
+            dist/AdlerIt-Windows-x64.exe
+            dist/AdlerIt-Windows-x64.exe.sha256
           if-no-files-found: error
 
   windows-defender-scan:
-    name: Scan Windows release artifacts
+    name: Scan Windows release artifact
     runs-on: windows-latest
     needs:
-      - windows-portable
-      - windows-installer
-      - windows-gui
+      - windows-app
     timeout-minutes: 15
     steps:
-      - name: Download Windows release artifacts
+      - name: Download Windows release artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: AdlerIt-Windows-x64-*
+          name: AdlerIt-Windows-x64
           path: defender-input
-          merge-multiple: true
 
       - name: Verify Microsoft Defender and update signatures
         shell: pwsh
@@ -187,26 +130,19 @@ jobs:
 
           Update-MpSignature -ErrorAction Stop
 
-      - name: Prepare Windows artifacts for scanning
+      - name: Prepare Windows artifact for scanning
         shell: pwsh
         run: |
           $inputRoot = Join-Path $PWD "defender-input"
           $scanRoot = Join-Path $PWD "defender-scan"
           New-Item -ItemType Directory -Path $scanRoot -Force | Out-Null
 
-          $artifacts = @(
-            "AdlerIt-Windows-x64.exe",
-            "AdlerIt-Windows-x64-GUI.exe",
-            "AdlerIt-Windows-x64-Setup.exe"
-          )
+          $artifact = "AdlerIt-Windows-x64.exe"
+          $source = Join-Path $inputRoot $artifact
+          if (-not (Test-Path $source)) { throw "Expected release artifact was not downloaded: $artifact" }
+          Copy-Item $source $scanRoot
 
-          foreach ($artifact in $artifacts) {
-            $source = Join-Path $inputRoot $artifact
-            if (-not (Test-Path $source)) { throw "Expected release artifact was not downloaded: $artifact" }
-            Copy-Item $source $scanRoot
-          }
-
-      - name: Scan Windows release artifacts with Microsoft Defender
+      - name: Scan Windows release artifact with Microsoft Defender
         shell: pwsh
         run: |
           $scanRoot = Join-Path $PWD "defender-scan"
@@ -215,7 +151,7 @@ jobs:
           $detections = @(Get-MpThreatDetection -ErrorAction Stop)
           if ($detections.Count -gt 0) {
             $detections | Format-List
-            throw "Microsoft Defender reported a detection in the Windows release artifacts."
+            throw "Microsoft Defender reported a detection in the Windows release artifact."
           }
 
           $status = Get-MpComputerStatus -ErrorAction Stop
@@ -227,15 +163,10 @@ jobs:
             "Signature version: $($status.AntivirusSignatureVersion)",
             "Signatures updated: $($status.AntivirusSignatureLastUpdated)",
             "",
-            "SHA-256 release artifact hashes:"
+            "SHA-256 release artifact hash:"
           ) | Set-Content -Path $reportPath -Encoding UTF8
 
-          $releaseArtifacts = @(
-            "defender-input\AdlerIt-Windows-x64.exe",
-            "defender-input\AdlerIt-Windows-x64-GUI.exe",
-            "defender-input\AdlerIt-Windows-x64-Setup.exe"
-          )
-          Get-FileHash -Algorithm SHA256 -Path $releaseArtifacts |
+          Get-FileHash -Algorithm SHA256 -Path "defender-input\AdlerIt-Windows-x64.exe" |
             ForEach-Object { "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))" } |
             Add-Content -Path $reportPath -Encoding UTF8
 
@@ -252,9 +183,7 @@ jobs:
     name: GitHub release
     runs-on: ubuntu-latest
     needs:
-      - windows-portable
-      - windows-installer
-      - windows-gui
+      - windows-app
       - windows-defender-scan
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -283,13 +212,10 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Attest release artifacts
+      - name: Attest release artifact
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
         with:
-          subject-path: |
-            release-assets/AdlerIt-Windows-x64.exe
-            release-assets/AdlerIt-Windows-x64-GUI.exe
-            release-assets/AdlerIt-Windows-x64-Setup.exe
+          subject-path: release-assets/AdlerIt-Windows-x64.exe
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
@@ -298,18 +224,13 @@ jobs:
           tag_name: ${{ github.ref_name }}
           body_path: release-notes.md
           fail_on_unmatched_files: true
-          files: |
-            release-assets/AdlerIt-Windows-x64.exe
-            release-assets/AdlerIt-Windows-x64-GUI.exe
-            release-assets/AdlerIt-Windows-x64-Setup.exe
+          files: release-assets/AdlerIt-Windows-x64.exe
 
   dry-run-summary:
     name: Verify dry-run release bundle
     runs-on: ubuntu-latest
     needs:
-      - windows-portable
-      - windows-installer
-      - windows-gui
+      - windows-app
       - windows-defender-scan
     if: github.event_name == 'workflow_dispatch'
     steps:
@@ -331,8 +252,6 @@ jobs:
         run: |
           expected_assets=(
             AdlerIt-Windows-x64.exe
-            AdlerIt-Windows-x64-GUI.exe
-            AdlerIt-Windows-x64-Setup.exe
             defender-scan-report.txt
           )
 

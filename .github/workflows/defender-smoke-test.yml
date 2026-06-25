@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   windows-release-dry-run:
-    name: Build and scan Windows release artifacts
+    name: Build and scan Windows GUI app
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
@@ -43,40 +43,21 @@ jobs:
 
           Update-MpSignature -ErrorAction Stop
 
-      - name: Install Inno Setup
-        shell: pwsh
-        run: choco install innosetup --no-progress -y
-
-      - name: Build portable app
-        shell: pwsh
-        run: Scripts\build-windows-portable.ps1
-
-      - name: Build GUI-only app
+      - name: Build Windows GUI app
         shell: pwsh
         run: Scripts\build-windows-gui.ps1
 
-      - name: Build installer
-        shell: pwsh
-        run: Scripts\build-windows-installer.ps1
-
-      - name: Prepare release artifacts for scanning
+      - name: Prepare release artifact for scanning
         shell: pwsh
         run: |
           $scanRoot = Join-Path $PWD "defender-scan"
           New-Item -ItemType Directory -Path $scanRoot -Force | Out-Null
 
-          $artifacts = @(
-            "dist\AdlerIt-Windows-x64.exe",
-            "dist\AdlerIt-Windows-x64-GUI.exe",
-            "dist\AdlerIt-Windows-x64-Setup.exe"
-          )
+          $artifact = "dist\AdlerIt-Windows-x64.exe"
+          if (-not (Test-Path $artifact)) { throw "Expected release artifact was not built: $artifact" }
+          Copy-Item $artifact $scanRoot
 
-          foreach ($artifact in $artifacts) {
-            if (-not (Test-Path $artifact)) { throw "Expected release artifact was not built: $artifact" }
-            Copy-Item $artifact $scanRoot
-          }
-
-      - name: Scan Windows release artifacts with Microsoft Defender
+      - name: Scan Windows release artifact with Microsoft Defender
         shell: pwsh
         run: |
           $scanRoot = Join-Path $PWD "defender-scan"
@@ -85,7 +66,7 @@ jobs:
           $detections = @(Get-MpThreatDetection -ErrorAction Stop)
           if ($detections.Count -gt 0) {
             $detections | Format-List
-            throw "Microsoft Defender reported a detection in the Windows release artifacts."
+            throw "Microsoft Defender reported a detection in the Windows release artifact."
           }
 
           $status = Get-MpComputerStatus -ErrorAction Stop
@@ -97,15 +78,10 @@ jobs:
             "Signature version: $($status.AntivirusSignatureVersion)",
             "Signatures updated: $($status.AntivirusSignatureLastUpdated)",
             "",
-            "SHA-256 release artifact hashes:"
+            "SHA-256 release artifact hash:"
           ) | Set-Content -Path $reportPath -Encoding UTF8
 
-          $releaseArtifacts = @(
-            "dist\AdlerIt-Windows-x64.exe",
-            "dist\AdlerIt-Windows-x64-GUI.exe",
-            "dist\AdlerIt-Windows-x64-Setup.exe"
-          )
-          Get-FileHash -Algorithm SHA256 -Path $releaseArtifacts |
+          Get-FileHash -Algorithm SHA256 -Path "dist\AdlerIt-Windows-x64.exe" |
             ForEach-Object { "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))" } |
             Add-Content -Path $reportPath -Encoding UTF8
 
@@ -117,7 +93,5 @@ jobs:
           name: AdlerIt-Windows-Defender-dry-run
           path: |
             dist/AdlerIt-Windows-x64.exe
-            dist/AdlerIt-Windows-x64-GUI.exe
-            dist/AdlerIt-Windows-x64-Setup.exe
             dist/defender-scan-report.txt
           if-no-files-found: error
