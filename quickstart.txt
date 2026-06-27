@@ -22,7 +22,7 @@ data files.
 ----------------
 
 - Type or paste text into the INPUT box.
-- The Adler-32 value updates live as a hex checksum (0x...).
+- The Adler-32 value updates live as an eight-character hex checksum.
 - Click Copy to copy the checksum to the clipboard.
 
 
