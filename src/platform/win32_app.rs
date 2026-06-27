@@ -1181,21 +1181,28 @@ fn is_draggable_title_area(x: i32, y: i32) -> bool {
 }
 
 fn toggle_topmost(hwnd: HWND) {
-    let (topmost_button, is_topmost) = UI.with(|ui| {
-        let mut ui = ui.borrow_mut();
-        ui.is_topmost = !ui.is_topmost;
-        (ui.topmost, ui.is_topmost)
+    let (topmost_button, next_topmost) = UI.with(|ui| {
+        let ui = ui.borrow();
+        (ui.topmost, !ui.is_topmost)
     });
 
-    let insert_after = if is_topmost {
+    let insert_after = if next_topmost {
         HWND_TOPMOST
     } else {
         HWND_NOTOPMOST
     };
-    let icon = wide(if is_topmost { PINNED_ICON } else { PIN_ICON });
 
+    let updated = unsafe { SetWindowPos(hwnd, insert_after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE) };
+    if updated == 0 {
+        return;
+    }
+
+    UI.with(|ui| {
+        ui.borrow_mut().is_topmost = next_topmost;
+    });
+
+    let icon = wide(if next_topmost { PINNED_ICON } else { PIN_ICON });
     unsafe {
-        SetWindowPos(hwnd, insert_after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         SetWindowTextW(topmost_button, icon.as_ptr());
     }
 }
